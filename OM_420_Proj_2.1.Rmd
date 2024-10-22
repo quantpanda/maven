@@ -1,0 +1,193 @@
+---
+title: "OM_420_Proj_2.1"
+author: "Maimann Cole"
+date: "2024-10-22"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+
+library(readr)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+customers = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Customers.csv")
+products = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Products.csv")
+regions = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Regions.csv")
+returns = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Returns_1997-1998.csv")
+stores = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Stores.csv")
+transactions_1997 = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Transactions_1997.csv")
+transactions_1998 = read_csv("/Users/cmoney/Desktop/R projects/Project Files/MavenMarket_Transactions_1998.csv")
+```
+
+
+```{r}
+# Customers
+customers_city_summary <- customers %>% 
+  mutate(married = ifelse(marital_status == "M", 1, 0),
+         male = ifelse(gender == "M", 1, 0), 
+         homeowner_y_n = ifelse(homeowner == "Y", 1, 0)) %>%
+  group_by(customer_city) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            married = mean(married),
+            single = 1 - mean(married),
+            male = mean(male),
+            female = 1 - mean(male), 
+            homeowner = mean(homeowner_y_n),
+            sum_children = sum(total_children),
+            total_num_children_at_home = sum(num_children_at_home),
+            avg_children = mean(total_children),
+            avg_num_children_at_home = mean(num_children_at_home))
+customers_prov_summary <- customers %>% 
+  mutate(married = ifelse(marital_status == "M", 1, 0),
+         male = ifelse(gender == "M", 1, 0), 
+         homeowner_y_n = ifelse(homeowner == "Y", 1, 0)) %>%
+  group_by(customer_state_province) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            married = mean(married),
+            single = 1 - mean(married),
+            male = mean(male),
+            female = 1 - mean(male), 
+            homeowner = mean(homeowner_y_n),
+            sum_children = sum(total_children),
+            total_num_children_at_home = sum(num_children_at_home),
+            avg_children = mean(total_children),
+            avg_num_children_at_home = mean(num_children_at_home))
+            
+  
+  
+products_summary <- products %>% 
+  summarise_all(mean, na.rm = TRUE)
+regions_summary <- regions %>%
+  summarise_all(mean, na.rm = TRUE)
+returns_summary <- returns %>%
+  summarise_all(mean, na.rm = TRUE)
+stores_summary <- stores %>%
+  summarise_all(mean, na.rm = TRUE)
+
+# summary of transactions 1997
+transactions_1997_summary <- transactions_1997 %>%
+  group_by(store_id) %>%
+  summarise(count_products = n_distinct(product_id),
+            total_customers = n_distinct(customer_id),
+            sum_quantity = sum(quantity))
+
+# summary of transactions 1998
+transactions_1998_summary <- transactions_1998 %>%
+  group_by(store_id) %>%
+  summarise(count_products = n_distinct(product_id),
+            total_customers = n_distinct(customer_id),
+            sum_quantity = sum(quantity))
+
+customers_city_summary
+customers_prov_summary
+products_summary
+regions_summary
+returns_summary
+stores_summary
+transactions_1997_summary
+transactions_1998_summary
+```
+
+```{r}
+# Return Rate by Product
+
+return_rate_by_product <- returns %>%
+  group_by(product_id) %>%
+  summarise(total_returns = sum(quantity)) %>%
+  left_join(transactions_1997 %>%
+    group_by(product_id) %>%
+    summarise(total_sales = sum(quantity)), by = "product_id") %>%
+  left_join(products %>% 
+    select(product_id, product_name, product_brand, product_retail_price, product_cost), by = "product_id") %>% 
+  mutate(return_rate = total_returns / total_sales)
+
+# View the return rates arranged in descending order
+return_rate_by_product %>%
+  arrange(desc(return_rate))
+
+
+
+```
+
+```{r}
+
+head(transactions_1997)
+head(customers)
+head(returns)
+```
+```{r}
+
+#Matching Transactions to the Returns Table
+
+returns_unique = returns %>%
+  distinct(store_id, product_id, return_date, .keep_all = TRUE)
+
+matching_transactions_1997 = transactions_1997 %>%
+  inner_join(returns, 
+             by = c(
+               "transaction_date" = "return_date",
+               "product_id" = "product_id",
+               "store_id" = "store_id")
+            ) %>%
+  inner_join(customers) %>%
+  inner_join(products)
+
+matching_transactions_1997 = matching_transactions_1997 %>%
+  select(transaction_date, store_id, product_id, customer_id, first_name, last_name, product_name, product_brand)
+
+  
+matching_transactions_1997
+
+```
+```{r}
+dup_rows = returns[duplicated(returns),]
+dup_rows
+```
+
+
+```{r}
+# Add binary return column to returns data (1 for return)
+returns <- returns %>%
+  mutate(returned = 1)
+
+#Creates Age column
+customers$birthdate <- as.Date(customers$birthdate, format = "%m/%d/%Y")
+reference_date <- as.Date("1998-01-01")
+customers$age <- as.numeric(difftime(reference_date, customers$birthdate, units = "days")) %/% 365
+
+# Merge transactions and returns to create a binary return column (1 for return, 0 for non-return)
+transactions_with_returns <- transactions_1997 %>%
+  left_join(returns %>% select(product_id, store_id, return_date, returned), 
+            by = c("product_id", "store_id", "transaction_date" = "return_date")) %>%
+  mutate(returned = ifelse(is.na(returned), 0, 1))  # Set NA as 0 for non-returns
+
+
+# Merge with customer and product data
+transactions_full <- transactions_with_returns %>%
+  left_join(customers, by = "customer_id") %>%
+  left_join(products, by = "product_id")
+
+# Convert categorical variables to factors
+transactions_full$gender <- as.factor(transactions_full$gender)
+transactions_full$product_brand <- as.factor(transactions_full$product_brand)
+transactions_full$marital_status <- as.factor(transactions_full$marital_status)
+
+# Fit logistic regression model
+logistic_model <- glm(returned ~ product_retail_price + product_cost + product_brand + age + gender + marital_status, 
+                      data = transactions_full, 
+                      family = binomial)
+
+# Summary of the model
+summary(logistic_model)
+
+
+
+```
+
