@@ -1,0 +1,94 @@
+---
+title: "Proposal"
+author: "Olivier Haley"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# Load the data
+customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv")
+regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
+returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
+stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
+transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv")
+transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
+```
+
+# Introduction
+```{r}
+# Customers
+customers_city_summary <- customers %>% 
+  mutate(married = ifelse(marital_status == "M", 1, 0),
+         male = ifelse(gender == "M", 1, 0), 
+         homeowner_y_n = ifelse(homeowner == "Y", 1, 0)) %>%
+  group_by(customer_city) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            married = mean(married),
+            single = 1 - mean(married),
+            male = mean(male),
+            female = 1 - mean(male), 
+            homeowner = mean(homeowner_y_n),
+            sum_children = sum(total_children),
+            total_num_children_at_home = sum(num_children_at_home),
+            avg_children = mean(total_children),
+            avg_num_children_at_home = mean(num_children_at_home))
+customers_prov_summary <- customers %>% 
+  mutate(married = ifelse(marital_status == "M", 1, 0),
+         male = ifelse(gender == "M", 1, 0), 
+         homeowner_y_n = ifelse(homeowner == "Y", 1, 0)) %>%
+  group_by(customer_state_province) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            married = mean(married),
+            single = 1 - mean(married),
+            male = mean(male),
+            female = 1 - mean(male), 
+            homeowner = mean(homeowner_y_n),
+            sum_children = sum(total_children),
+            total_num_children_at_home = sum(num_children_at_home),
+            avg_children = mean(total_children),
+            avg_num_children_at_home = mean(num_children_at_home))
+            
+  
+  
+products_summary <- products %>% 
+  summarise_all(mean, na.rm = TRUE)
+regions_summary <- regions %>%
+  summarise_all(mean, na.rm = TRUE)
+returns_summary <- returns %>%
+  summarise_all(mean, na.rm = TRUE)
+stores_summary <- stores %>%
+  summarise_all(mean, na.rm = TRUE)
+
+# summary of transactions 1997
+transactions_1997_summary <- transactions_1997 %>%
+  group_by(store_id) %>%
+  summarise(count_products = n_distinct(product_id),
+            total_customers = n_distinct(customer_id),
+            sum_quantity = sum(quantity))
+
+# summary of transactions 1998
+transactions_1998_summary <- transactions_1998 %>%
+  group_by(store_id) %>%
+  summarise(count_products = n_distinct(product_id),
+            total_customers = n_distinct(customer_id),
+            sum_quantity = sum(quantity))
+
+customers_city_summary
+customers_prov_summary
+products_summary
+regions_summary
+returns_summary
+stores_summary
+transactions_1997_summary
+transactions_1998_summary
+```
+
+

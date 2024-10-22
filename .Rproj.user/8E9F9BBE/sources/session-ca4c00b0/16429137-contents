@@ -1,0 +1,131 @@
+# Part 1 – Data Preparation
+# 1. (10 pts) 
+setwd("~/5th year/OM 420/Assignments/as-3")
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+admission_df <- read_csv("College_Admissions.csv")
+admission_df$White <- as.factor(admission_df$White)
+admission_df$Edu_Parent1 <- as.factor(admission_df$Edu_Parent1)
+admission_df$Edu_Parent2 <- as.factor(admission_df$Edu_Parent2)
+
+# Part 2 – Data Visualization
+# 2. (19 pts)
+ggplot(admission_df, aes(x = HSGPA, y = Sex)) + 
+  geom_boxplot()
+# Observations: The boxplot comparing High School GPA to Sex shows 
+# that the median GPA of Female students is higher than that of Male Students
+# We can also see that Female students have a wider range of GPAs (outliers) than
+# Male students.
+
+ggplot(admission_df, aes(x = HSGPA, y = SAT_ACT, colour = Sex)) + 
+  geom_point()+
+  geom_smooth(aes(x = HSGPA, y = SAT_ACT), se = F)
+# Observations: The plot shows a positive correlation between HSGPA and SAT/ACT scores for both Male and Female students 
+# as well as similar slopes. The distribution of Male students is shifted to the left compared to female students indicating 
+# that male students have lower HS GPA but not necessarily lower SAT/ACT scores.
+
+# 3. (14 pts) 
+ggplot(admission_df, aes(x = HSGPA))+
+  geom_freqpoly(binwidth = 0.1)
+
+ggplot(admission_df, aes(x = HSGPA, y = after_stat(density)))+
+  geom_freqpoly(binwidth = 0.1)
+
+# 4. (18 pts) 
+admission_df_subset <- admission_df %>% filter(!is.na(College_GPA))
+ggplot(admission_df_subset, aes(x = HSGPA, y = College_GPA, colour = Asian))+
+  geom_point()
+# Asian is a binary variable taking values of 0 and 1. The color bar in the plot is not ideal 
+# because it provides the color scale on a continuous scale. To correct this, we can use the as.factor() function
+# to make the binary variable a factor variable. example below:
+
+ggplot(admission_df_subset, aes(x = HSGPA, y = College_GPA, colour = as.factor(Asian)))+
+  geom_point()
+
+
+# 5. (19 pts) 
+#   a) (12 pts) Use facet_wrap() to recreate a separate scatter plot for each gender.
+ggplot(admission_df, aes(x = HSGPA, y = SAT_ACT, color = Sex)) + 
+  geom_point()+
+  facet_wrap(~Sex)
+
+# b) (7 pts) 
+ggplot(admission_df, aes(x = HSGPA, y = SAT_ACT, color = Sex)) + 
+  geom_point()+
+  facet_wrap(~Sex, scales = "free")
+
+# The plot changes compared to 4.a because both axis scales are now independent 
+# for each Sex and are zoomed in to fit the data points.
+
+# 6. (20 pts) 
+# a) (6 pts) 
+count_college_sex <- admission_df %>% count(College,Sex)
+
+# b) (10 pts) 
+ggplot(count_college_sex, aes(x = College, Sex, fill = n))+
+  geom_tile()
+
+# c) (4 pts) 
+
+# Although Male students are less concentrated in any one field, their preference for the college majors
+# is Math and Science. Female students are more concentrated in the Arts and Letters fields and are least
+# concentrated in Business and Economics.
+
+# 7. (11 pts) 
+# a) (5 pts) ggplot(data = admission_df) + geom_bar(mapping = aes(x = College))
+ggplot(admission_df) + geom_bar(aes(x = College))
+# b) (6 pts) ggplot(admission_df, mapping = aes(x = SAT_ACT)) + geom_density(mapping = aes(color = White))
+ggplot(admission_df, aes(x = SAT_ACT)) + geom_density(aes(color = White))
+# Part 3:
+#   Feature is another name for variable which are the columns of our data frame. 
+# There are two main ways of generating features, making features manually using 
+# the existing ones and generating them automatically. The advantage of the first method 
+# is that we can use domain knowledge to make features that will be informative and related
+# to our problem. The advantage of the second method is that it can be automated to make a 
+# large number of features at once; it might also lead to informative variables that we 
+# otherwise would not have thought of. In this exercise we will manually generate
+# features. We will use the text of the reviews for making new columns; therefore, 
+# we need to learn a bit about working with text.
+# The stringr library (part of tidyverse) has many functions for working with strings. 
+# All of its functions start with str_. For example we can ask whether a piece of text contains 
+# a specific word using the str_detect() function: try
+# str_detect("this one's Optimistic this one went to market", "optimistic")
+# Use square brackets if you want to check for both the capitalized and the not-capitalized variant of a word: try
+# str_detect("this one's Optimistic this one went to market", "[oO]ptimistic")
+# Load the library stringr. Download the file “review_10k.rds” containing the first 10,000 reviews from the Yelp data.
+# 8. (39 pts) Write R codes that perform the following tasks.
+# a) (3 pts) Read the RDS file and name it review_10k.
+library(stringr)
+review_10k <- readRDS("review_10k.rds")
+# b) (8 pts) Use mutate() and str_detect() to add a Boolean column to the review_10k data frame that is TRUE 
+# if the review’s text has the word “pizza” (no matter the first letter is capitalized or not) in it and FALSE 
+# otherwise. Note that you should overwrite the result onto the review_10k.
+review_10k <- review_10k %>% 
+  mutate(pizza = str_detect(text, "[pP]izza"))
+# c) (8 pts) Use str_count() to add another column that 
+# counts how many times the word “love” 
+# (capitalized or not) is used in the review’s text. Name the column n_love.
+review_10k <- review_10k %>% 
+  mutate(n_love = str_count(text, "[lL]ove"))
+# d) (8 pts) Use the filter() to show the records that have used the word “love” 
+# at least once.
+review_10k %>% 
+  filter(n_love > 0)
+
+# e) (6 pts) Subset the data frame to show all reviews that have the word “pizza” in them and have 
+# used the word “love” at least once.
+review_10k %>% 
+  filter(pizza == TRUE & n_love > 0)
+
+# f) (6 pts)
+
+# The approach does not account for the possibility of multiple white spaces between words which would 
+# lead to an overestimation of the number of words in the sentence. 
+
+
+
+
+
+
