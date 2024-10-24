@@ -14,13 +14,24 @@ library(ggplot2)
 ```{r}
 # Load the data
 customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
-products <- read_csv("data/CSV Files/MavenMarket_Products.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv") 
 regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
 returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
 stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
 transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv")
 transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
 ```
+
+
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+```
+
 
 # Introduction
 ```{r}
@@ -55,40 +66,126 @@ customers_prov_summary <- customers %>%
             total_num_children_at_home = sum(num_children_at_home),
             avg_children = mean(total_children),
             avg_num_children_at_home = mean(num_children_at_home))
-            
-  
-  
-products_summary <- products %>% 
-  summarise_all(mean, na.rm = TRUE)
-regions_summary <- regions %>%
-  summarise_all(mean, na.rm = TRUE)
-returns_summary <- returns %>%
-  summarise_all(mean, na.rm = TRUE)
-stores_summary <- stores %>%
-  summarise_all(mean, na.rm = TRUE)
-
-# summary of transactions 1997
-transactions_1997_summary <- transactions_1997 %>%
-  group_by(store_id) %>%
-  summarise(count_products = n_distinct(product_id),
-            total_customers = n_distinct(customer_id),
-            sum_quantity = sum(quantity))
-
-# summary of transactions 1998
-transactions_1998_summary <- transactions_1998 %>%
-  group_by(store_id) %>%
-  summarise(count_products = n_distinct(product_id),
-            total_customers = n_distinct(customer_id),
-            sum_quantity = sum(quantity))
 
 customers_city_summary
 customers_prov_summary
-products_summary
-regions_summary
-returns_summary
-stores_summary
-transactions_1997_summary
-transactions_1998_summary
+
+```
+
+```{r}
+#products
+# brand analysis
+products_summary <- products %>% 
+  group_by(product_brand) %>%
+  summarise(count_products = n_distinct(product_id),
+            avg_price = mean(product_retail_price),
+            avg_cost = mean(product_cost),
+            avg_weight = mean(product_weight),
+            recyclable = mean(recyclable),
+            low_fat = mean(low_fat))
+
+
+```
+
+
+```{r}
+# products joined to transactions
+transactions_1997_products <- transactions_1997 %>% 
+  full_join(products, by = "product_id")
+#colSums(is.na(transactions_1997_products))
+
+# stores joined to transactions and products
+stores_transaction_1997 <- stores %>% 
+  select(store_id, store_city, store_state, store_country, total_sqft,grocery_sqft) %>%
+  full_join(transactions_1997_products, by = "store_id")# %>%
+  # filter(is.na(product_cost)) %>% 
+  # na.omit()
+#colSums(is.na(stores_transaction))
+
+
+stores_transaction_summary_1997 <- stores_transaction_1997 %>%
+  group_by(store_id) %>%
+  summarise(name = paste(first(store_city), first(store_state), first(store_country), sep = ", "),
+            total_sqft = sum(total_sqft),
+            grocery_sqft = sum(grocery_sqft),
+            total_sales = sum(product_retail_price * quantity),
+            gross_profit = sum((product_retail_price - product_cost) * quantity),
+            total_unique_customers = n_distinct(customer_id),
+            total_transactions = n(),
+            avg_sales_per_customer = mean(total_sales/n_distinct(customer_id))) %>% 
+  mutate(gross_margin = gross_profit/total_sales)
+
+```
+
+
+```{r}
+# products joined to transactions
+transactions_1998_products <- transactions_1998 %>% 
+  full_join(products, by = "product_id")
+#colSums(is.na(transactions_1998_products))
+
+# stores joined to transactions and products
+stores_transaction_1998 <- stores %>% 
+  select(store_id, store_city, store_state, store_country, total_sqft,grocery_sqft) %>%
+  full_join(transactions_1998_products, by = "store_id")# %>% 
+  # na.omit()
+#colSums(is.na(stores_transaction))
+
+
+stores_transaction_summary_1998 <- stores_transaction_1998 %>%
+  group_by(store_id) %>%
+  summarise(name = paste(first(store_city), first(store_state), first(store_country), sep = ", "),
+            total_sqft = sum(total_sqft),
+            grocery_sqft = sum(grocery_sqft),
+            total_sales = sum(product_retail_price * quantity),
+            gross_profit = sum((product_retail_price - product_cost) * quantity),
+            total_unique_customers = n_distinct(customer_id),
+            total_transactions = n(),
+            avg_sales_per_customer = mean(total_sales/n_distinct(customer_id))) %>% 
+  mutate(gross_margin = gross_profit/total_sales)
+
+```
+
+```{r}
+returns_summary <- returns %>% 
+  full_join(products, by = "product_id") 
+
+product_returns <- returns_summary %>%
+  group_by(product_id) %>%
+  summarise(name = paste0(first(product_name)),
+            count_returns = sum(quantity),
+            avg_returned_quantity = mean(quantity),
+            returned_cost = sum(product_cost * quantity),
+            avg_returned_retail_price = mean(product_cost),
+            avg_returned_gross_profit = mean(gross_profit),
+            avg_returned_gross_margin = mean(gross_margin))
+store_returns <- returns_summary %>%
+  group_by(store_id) %>%
+  summarise(count_returns = sum(quantity),
+            avg_returned_quantity = mean(quantity),
+            returned_cost = sum(product_cost * quantity),
+            avg_returned_retail_price = mean(product_cost),
+            avg_returned_gross_profit = mean(gross_profit),
+            avg_returned_gross_margin = mean(gross_margin))
+```
+
+```{r}
+# Returns joined to Customers
+returns
+transactions_1997
+
+returns_customers <- returns %>% 
+  left_join(transactions_1997, by = c( "return_date" = "transaction_date" ,
+                                      "product_id" = "product_id", 
+                                      "store_id" = "store_id", 
+                                      "quantity" = "quantity")) %>% 
+  na.omit() 
+
+# Cant use transactions data 
+# what can we do with return data
+
+
+
 ```
 
 
