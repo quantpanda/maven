@@ -14,7 +14,7 @@ library(ggplot2)
 ```{r}
 # Load the data
 customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
-products <- read_csv("data/CSV Files/MavenMarket_Products.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv") 
 regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
 returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
 stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
@@ -22,7 +22,17 @@ transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv"
 transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
 ```
 
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+```
+
 # Introduction
+
 ```{r}
 # Customers
 customers_city_summary <- customers %>% 
@@ -55,40 +65,387 @@ customers_prov_summary <- customers %>%
             total_num_children_at_home = sum(num_children_at_home),
             avg_children = mean(total_children),
             avg_num_children_at_home = mean(num_children_at_home))
-            
-  
-  
-products_summary <- products %>% 
-  summarise_all(mean, na.rm = TRUE)
-regions_summary <- regions %>%
-  summarise_all(mean, na.rm = TRUE)
-returns_summary <- returns %>%
-  summarise_all(mean, na.rm = TRUE)
-stores_summary <- stores %>%
-  summarise_all(mean, na.rm = TRUE)
-
-# summary of transactions 1997
-transactions_1997_summary <- transactions_1997 %>%
-  group_by(store_id) %>%
-  summarise(count_products = n_distinct(product_id),
-            total_customers = n_distinct(customer_id),
-            sum_quantity = sum(quantity))
-
-# summary of transactions 1998
-transactions_1998_summary <- transactions_1998 %>%
-  group_by(store_id) %>%
-  summarise(count_products = n_distinct(product_id),
-            total_customers = n_distinct(customer_id),
-            sum_quantity = sum(quantity))
 
 customers_city_summary
 customers_prov_summary
-products_summary
-regions_summary
-returns_summary
-stores_summary
-transactions_1997_summary
-transactions_1998_summary
+
 ```
 
+```{r}
+#products
+# brand analysis
+products_summary <- products %>% 
+  group_by(product_brand) %>%
+  summarise(count_products = n_distinct(product_id),
+            avg_price = mean(product_retail_price),
+            avg_cost = mean(product_cost),
+            avg_weight = mean(product_weight),
+            recyclable = mean(recyclable),
+            low_fat = mean(low_fat))
 
+
+```
+
+```{r}
+# products joined to transactions
+transactions_1997_products <- transactions_1997 %>% 
+  full_join(products, by = "product_id")
+#colSums(is.na(transactions_1997_products))
+
+# stores joined to transactions and products
+stores_transaction_1997 <- stores %>% 
+  select(store_id, store_city, store_state, store_country, total_sqft,grocery_sqft) %>%
+  full_join(transactions_1997_products, by = "store_id")# %>%
+  # filter(is.na(product_cost)) %>% 
+  # na.omit()
+#colSums(is.na(stores_transaction))
+
+
+stores_transaction_summary_1997 <- stores_transaction_1997 %>%
+  group_by(store_id) %>%
+  summarise(name = paste(first(store_city), first(store_state), first(store_country), sep = ", "),
+            total_sqft = sum(total_sqft),
+            grocery_sqft = sum(grocery_sqft),
+            total_sales = sum(product_retail_price * quantity),
+            gross_profit = sum((product_retail_price - product_cost) * quantity),
+            total_unique_customers = n_distinct(customer_id),
+            total_transactions = n(),
+            avg_sales_per_customer = mean(total_sales/n_distinct(customer_id))) %>% 
+  mutate(gross_margin = gross_profit/total_sales)
+
+```
+
+```{r}
+# products joined to transactions
+transactions_1998_products <- transactions_1998 %>% 
+  full_join(products, by = "product_id")
+#colSums(is.na(transactions_1998_products))
+
+# stores joined to transactions and products
+stores_transaction_1998 <- stores %>% 
+  select(store_id, store_city, store_state, store_country, total_sqft,grocery_sqft) %>%
+  full_join(transactions_1998_products, by = "store_id")# %>% 
+  # na.omit()
+#colSums(is.na(stores_transaction))
+
+
+stores_transaction_summary_1998 <- stores_transaction_1998 %>%
+  group_by(store_id) %>%
+  summarise(name = paste(first(store_city), first(store_state), first(store_country), sep = ", "),
+            total_sqft = sum(total_sqft),
+            grocery_sqft = sum(grocery_sqft),
+            total_sales = sum(product_retail_price * quantity),
+            gross_profit = sum((product_retail_price - product_cost) * quantity),
+            total_unique_customers = n_distinct(customer_id),
+            total_transactions = n(),
+            avg_sales_per_customer = mean(total_sales/n_distinct(customer_id))) %>% 
+  mutate(gross_margin = gross_profit/total_sales)
+
+```
+
+```{r}
+returns_summary <- returns %>% 
+  full_join(products, by = "product_id") 
+
+product_returns <- returns_summary %>%
+  group_by(product_id) %>%
+  summarise(name = paste0(first(product_name)),
+            count_returns = sum(quantity),
+            avg_returned_quantity = mean(quantity),
+            returned_cost = sum(product_cost * quantity),
+            avg_returned_retail_price = mean(product_cost),
+            avg_returned_gross_profit = mean(gross_profit),
+            avg_returned_gross_margin = mean(gross_margin))
+store_returns <- returns_summary %>%
+  group_by(store_id) %>%
+  summarise(count_returns = sum(quantity),
+            avg_returned_quantity = mean(quantity),
+            returned_cost = sum(product_cost * quantity),
+            avg_returned_retail_price = mean(product_cost),
+            avg_returned_gross_profit = mean(gross_profit),
+            avg_returned_gross_margin = mean(gross_margin))
+```
+
+```{r}
+# Returns joined to Customers
+returns
+transactions_1997
+
+returns_customers <- returns %>% 
+  left_join(transactions_1997, by = c( "return_date" = "transaction_date" ,
+                                      "product_id" = "product_id", 
+                                      "store_id" = "store_id",
+                                      'quantity' = 'quantity')) %>% 
+  drop_na()
+
+# Cant use transactions data 
+# what can we do with return data
+
+
+
+
+
+
+```
+
+# Customer Annual Value Estimation
+
+```{r}
+# Combine transactions from 1997 and 1998
+full_transaction <- rbind(transactions_1997, transactions_1998)
+
+# Set the reference date in the correct format
+ref_date <- as.Date("1997-01-01")
+
+customers_clean = customers %>% 
+  mutate(married = ifelse(marital_status == "M", 1, 0),
+         male = ifelse(gender == "M", 1, 0), 
+         homeowner_y_n = ifelse(homeowner == "Y", 1, 0)) 
+  
+# Select specific customer attributes
+customer_attributes <- customers_clean %>%
+  select(customer_id, customer_acct_num, first_name, last_name, customer_address, birthdate, acct_open_date, yearly_income, total_children, homeowner_y_n, married, male)
+
+# Mutate to add calculated fields (correcting column names)
+customer_attributes <- customer_attributes %>%
+  mutate(birthdate = as.Date(birthdate, format = "%m/%d/%Y"),
+         acct_open_date = as.Date(acct_open_date, format = "%m/%d/%Y"),
+         age = as.numeric(difftime(ref_date, birthdate, units = "days"))/365.25,
+         acct_age = as.numeric(difftime(ref_date, acct_open_date, units = "days"))/365.25,
+         income3050 = ifelse(yearly_income == "$30K - $50K", 1, 0),
+         income5070 = ifelse(yearly_income == "$50K - $70K", 1, 0),
+         income7090 = ifelse(yearly_income == "$70K - $90K", 1, 0),
+         income90110 = ifelse(yearly_income == "$90K - $110K", 1, 0),
+         income110130 = ifelse(yearly_income == "$110K - $130K", 1, 0),
+         income130150 = ifelse(yearly_income == "$130K - $150K", 1, 0),
+         income150plus = ifelse(yearly_income == "$150K +", 1, 0))
+
+# Merge transactions_1998 with products to include product pricing information
+transactions_1998_with_products <- transactions_1998 %>%
+  left_join(products %>% select(product_id, product_retail_price), by = "product_id")
+
+# Summarize transactions with total sales
+transactions_1998_summarised <- transactions_1998_with_products %>%
+  mutate(transaction_value = product_retail_price * quantity) %>%
+  group_by(customer_id) %>%
+  summarise(total_transactions = n(),
+            total_sales = sum(transaction_value),
+            avg_transaction_value = mean(transaction_value))
+
+
+# Join summarized transactions with customer attributes
+customer_attributes <- customer_attributes %>%
+  right_join(transactions_1998_summarised, by = "customer_id")
+
+
+# Linear regression models
+mod1 <- lm(total_sales ~ income3050 + income5070 + income7090 + income90110 + income110130 + income130150 + income150plus, data = customer_attributes)
+mod2 <- lm(total_sales ~ total_children, data = customer_attributes)
+
+# Summary of second model
+summary(mod2)
+
+```
+
+Investigation
+
+```{r}
+
+
+head(customers)
+head(transactions_1998_with_products)
+view(customer_attributes)
+
+summary(customer_attributes)
+
+
+```
+
+Visualization
+
+```{r}
+
+ggplot(customer_attributes, aes(x = age, fill = as.factor(male))) + 
+  geom_histogram(binwidth = 1, color = "blue2") + 
+  labs(x = "Age", y = "Frequency", title = "Histogram of Age by Customers and Sex") + 
+  theme_minimal()
+
+# Histogram of the Relative Frequency of each age by gender
+ggplot(customer_attributes, aes(x = age, fill = as.factor(male))) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, color = "blue2") + 
+  labs(x = "Age", y = "Frequency", title = "Histogram of Age by Customers and Sex") + 
+  theme_minimal()
+
+
+# Creating 5-year age bins
+aggregated_data <- aggregated_data %>%
+  mutate(age_group = cut(age, breaks = seq(0, 100, by = 1), right = FALSE, include.lowest = TRUE))
+
+# Recalculate the average sales per age group
+aggregated_data_grouped <- aggregated_data %>%
+  group_by(age_group, male) %>%
+  summarise(
+    avg_total_sales = mean(avg_total_sales, na.rm = TRUE)
+  )
+
+# Plotting the grouped data
+ggplot(aggregated_data_grouped, aes(x = age_group, y = avg_total_sales, fill = as.factor(male))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(
+    x = "Age Group (5-Year Bins)",
+    y = "Average Total Sales",
+    fill = "Gender",
+    title = "Average Total Sales by 5-Year Age Group and Gender"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.background = element_rect(fill = "grey95"),
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels for readability
+  )
+
+# Creating 5-year age bins
+aggregated_data <- aggregated_data %>%
+  mutate(age_group = cut(age, breaks = seq(0, 100, by = 5), right = FALSE, include.lowest = TRUE))
+
+# No need to calculate average sales since we're using a box plot to visualize variability
+# Grouped data remains as it is; just use it directly in the plot
+
+# Plotting the grouped data with a box plot
+ggplot(aggregated_data, aes(x = age_group, y = avg_total_sales, fill = as.factor(male))) +
+  geom_boxplot() +
+  labs(
+    x = "Age Group (5-Year Bins)",
+    y = "Average Total Sales",
+    fill = "Gender",
+    title = "Distribution of Total Sales by 5-Year Age Group and Gender"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.background = element_rect(fill = "grey95"),
+    axis.text.x = element_text(angle = 45, hjust = 1)  # Tilt x-axis labels for readability
+  )
+
+
+```
+
+```{r}
+
+# Histogram of the Relative Frequency of each age by gender
+ggplot(customer_attributes, aes(x = total_sales.x )) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 5, color = "blue2") + 
+  labs(x = "Total Sales", y = "Relative Frequency", title = "Histogram of Total Sales per Customer in 1998") + 
+  theme_minimal()+ 
+  theme(plot.title = element_text(hjust = 0.5))
+
+customer_attributes1 <- customer_attributes %>%
+  left_join(customers %>% select(customer_id, marital_status), by = "customer_id") %>%
+  mutate(marital_status = as.factor(marital_status))
+
+
+ggplot(customer_attributes1, aes(x = avg_transaction_value.x, fill = marital_status)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, color = "blue2") + 
+  labs(x = "Average Spend Per Transaction", y = "Relative Frequency", title = "Histogram of Avg Transactions by Sex in 1998", fill = "Male") + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+ggplot(customer_attributes, aes(x = avg_transaction_value.x)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, color = "blue2") + 
+  labs(x = "Average Spend Per Transaction", y = "Relative Frequency", title = "Distribution of Avg Spend per Transaction in 1998", fill = "Male") + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+# Histogram, Total Transactions ~ marital status
+ggplot(customer_attributes1, aes(x = total_transactions.x, fill = marital_status)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1) + 
+  labs(x = "Annual Transactions per Customer", y = "Relative Frequency", title = "Histogram of Total Transactions by Marital Satus in 1998", fill = "Male") + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+ggplot(customer_attributes1, aes(x = total_sales.x, fill = marital_status)) + 
+  geom_
+  labs(x = "Average Spend Per Transaction", y = "Relative Frequency", title = "Histogram of Total Transactions by Marital Satus in 1998", fill = "Male") + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+#__________________________________________________________________________________________
+
+# Education
+
+
+
+customer_attributes2 = customer_attributes %>%
+  left_join(customers %>% select(customer_id, education), by = "customer_id")
+
+
+ggplot(customer_attributes2, aes(x = total_sales.x, fill = education)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 10) + 
+  labs(
+    x = "Total Sales",
+    y = "Relative Frequency",
+    title = "Histogram of Total Sales by Education Level in 1998",
+    fill = "Education"
+  ) + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+ggplot(customer_attributes2, aes(x = avg_transaction_value.x, fill = education)) + 
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1) + 
+  labs(
+    x = "Total Sales",
+    y = "Relative Frequency",
+    title = "Histogram of Total Sales by Education Level in 1998",
+    fill = "Education"
+  ) + 
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+```
+
+```{r}
+
+# Example for correlation heatmap (assuming numeric data)
+library(reshape2)
+customer_attributes3 = customer_attributes2
+customer_attributes3$education = replace()
+
+view(customer_attributes3)
+
+# Select numeric columns for correlation
+cor_data <- customer_attributes2 %>%
+  select(total_sales.x,  total_children, age, acct_age)
+
+# Calculate correlations
+cor_matrix <- cor(cor_data, use = "complete.obs")
+
+# Melt for ggplot
+melted_cor <- melt(cor_matrix)
+
+# Plot heatmap
+ggplot(melted_cor, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0) +
+  labs(
+    x = "Variable",
+    y = "Variable",
+    title = "Correlation Heatmap"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
