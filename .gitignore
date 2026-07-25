@@ -1,54 +1,84 @@
-# History files
-.Rhistory
-.Rapp.history
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
 
-# Session Data files
-.RData
-.RDataTmp
-
-# User-specific files
-.Ruserdata
-
-# Example code in package build process
-*-Ex.R
-
-# Output files from R CMD build
-/*.tar.gz
-
-# Output files from R CMD check
-/*.Rcheck/
-
-# RStudio files
+# R / RStudio
 .Rproj.user/
-
-# produced vignettes
-vignettes/*.html
-vignettes/*.pdf
-
-# OAuth2 token, see https://github.com/hadley/httr/releases/tag/v0.3
+.Rhistory
+.RData
+.Ruserdata
+.Rapp.history
+*.Rout
 .httr-oauth
 
-# knitr and R markdown default cache directories
-*_cache/
-/cache/
-
-# Temporary files created by R markdown
-*.utf8.md
-*.knit.md
-
-# R Environment Variables
-.Renviron
-
-# pkgdown site
-docs/
-
-# translation temp files
-po/*~
-
-# RStudio Connect folder
+# rsconnect deployment metadata
 rsconnect/
 
-data/
+# Quarto
+/.quarto/
+_freeze/
+*_files/
+*_cache/
+/*_cache/
 
-proposal_files/
+# R package build artifacts
+*.tar.gz
+src/*.o
+src/*.so
+src/*.dll
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+
+# Jupyter
+*.ipynb_checkpoints
+
+# Node (in case of JS tooling, e.g. GitHub Pages site)
+node_modules/
+npm-debug.log*
+
+# Docker
+*.log
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.local
+.Renviron
+
+# OS-generated
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Data
+*.csv
+*.json
+*.xlsx
+*.xls
+*.rda
+
+# rendered
+*.html
+*.pdf
+
+#libraries
+myenv/
+lib/
