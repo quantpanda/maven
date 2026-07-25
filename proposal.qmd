@@ -22,7 +22,6 @@ transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv"
 transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
 ```
 
-
 ```{r}
 # Data Preperation
 # Clean the data
@@ -30,10 +29,39 @@ products <- products %>%
   replace_na(list(recyclable = 0, low_fat = 0)) %>% 
   mutate(gross_profit = product_retail_price - product_cost,
          gross_margin = gross_profit/product_retail_price)
+
+customers <- customers %>% 
+  mutate(yearly_income = factor(
+                                yearly_income, levels = c("$30K - $50K" , 
+                                                          "$70K - $90K"  , 
+                                                          "$50K - $70K"  , 
+                                                          "$10K - $30K"   ,
+                                                          "$90K - $110K" ,
+                                                          "$110K - $130K" ,
+                                                          "$130K - $150K", 
+                                                          "$150K +"  )
+                                )
+         )
+
+transactions_1997_sales <- transactions_1997 %>%
+  left_join(products, by = "product_id") %>%
+  group_by(customer_id) %>%
+  summarise(total_spend_1997 = sum(product_retail_price * quantity))
+
+transactions_1998_sales <- transactions_1998 %>%
+  left_join(products, by = "product_id") %>%
+  group_by(customer_id) %>%
+  summarise(total_spend_1998 = sum(product_retail_price * quantity))
+
+customer_sales <- customers %>% 
+  left_join(transactions_1997_sales, by = "customer_id") %>% 
+  left_join(transactions_1998_sales, by = "customer_id") %>% 
+  replace_na(list(total_spend_1997 = 0, total_spend_1998 = 0)) %>%
+  mutate(total_spend = total_spend_1997 + total_spend_1998)
+
+
 ```
 
-
-# Introduction
 ```{r}
 # Customers
 customers_city_summary <- customers %>% 
@@ -87,7 +115,6 @@ products_summary <- products %>%
 
 ```
 
-
 ```{r}
 # products joined to transactions
 transactions_1997_products <- transactions_1997 %>% 
@@ -116,7 +143,6 @@ stores_transaction_summary_1997 <- stores_transaction_1997 %>%
   mutate(gross_margin = gross_profit/total_sales)
 
 ```
-
 
 ```{r}
 # products joined to transactions
@@ -188,4 +214,173 @@ returns_customers <- returns %>%
 
 ```
 
+```{r}
+# Data Visualisation
+# member card holders by store
+cust_member_card <- customers %>% 
+  select(customer_id, member_card) %>%
+  left_join(transactions_1998_products, by = "customer_id") %>%
+  group_by(customer_id) %>%
+  summarise(total_spend = sum(product_retail_price), 
+            member_card = paste0(first(member_card))) #%>%
+  #replace_na(list(total_spend = 0)) 
 
+member_card_agg <- cust_member_card %>%
+  group_by(member_card) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            sum_spend = sum(total_spend, na.rm = T),
+            avg_spend = mean(total_spend, na.rm = T),) %>% 
+  # arrange by golden, silver, bronze, normal
+  mutate(member_card = factor(member_card, levels = c("Golden", "Silver", "Bronze", "Normal"))) %>% 
+  arrange(member_card)
+
+cols <- c("Golden" = "gold3", "Silver" = "grey", "Bronze" = "#CE8946", "Normal" = "black")
+
+ggplot(member_card_agg, aes(x = member_card, y = avg_spend, fill = member_card)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Average Spend by Member Card Tier",
+    x = "Member Card",
+    y = "Average Spend ($)",
+    fill = "Member Card"
+  ) +
+  scale_fill_manual(values = cols) +
+  theme_minimal()
+
+
+
+# boxplot of spend by member card
+ggplot(cust_member_card, aes(x = member_card, y = total_spend, fill = member_card)) +
+  geom_boxplot() +
+  labs(title = "Total Spend by Member Card Tier",
+       x = "Member Card",
+       y = "Total Spend ($)",
+       fill = "Member Card") +
+  theme_minimal()
+```
+
+```{r}
+full_cust <- cust_member_card %>% 
+  full_join(customers, by = "customer_id") 
+  
+# total spend to occuption
+cust_occupation <- full_cust %>% 
+  group_by(occupation) %>%
+  summarise(count_customers = n_distinct(customer_id),
+            sum_spend = sum(total_spend, na.rm = T),
+            avg_spend = mean(total_spend, na.rm = T)) %>% 
+  arrange(desc(sum_spend))
+
+#plot
+ggplot(cust_occupation, aes(x = occupation, y = avg_spend, fill = occupation)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Spend by Occupation",
+       x = "Occupation",
+       y = "Average Spend ($)",
+       fill = "Occupation") +
+  theme_minimal()
+
+#total spend by gender
+cust_gender_income <- full_cust %>% 
+  group_by(gender, yearly_income) %>% 
+  summarise(count_customers = n_distinct(customer_id),
+            sum_spend = sum(total_spend, na.rm = T),
+            avg_spend = mean(total_spend, na.rm = T)) %>% 
+  arrange(desc(sum_spend))
+# plot 
+ggplot(cust_gender_income %>% filter(gender == "M"), aes(x = yearly_income, y = avg_spend)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Spend by Occupation",
+       x = "Occupation",
+       y = "Average Spend ($)",
+       fill = "Occupation") +
+  theme_minimal()
+ggplot(cust_gender_income %>% filter(gender == "F"), aes(x = yearly_income, y = avg_spend)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Average Spend by Occupation",
+       x = "Occupation",
+       y = "Average Spend ($)",
+       fill = "Occupation") +
+  theme_minimal()
+
+```
+
+```{r}
+# Distributions
+
+```
+
+
+
+```{r}
+data <- customer_sales %>%
+  mutate(
+    birthdate = as.Date(birthdate, format = "%m/%d/%Y"),
+    acct_open_date = as.Date(acct_open_date, format = "%m/%d/%Y"),
+    age = round(as.numeric(difftime(as.Date("1998-01-01"), birthdate, units = "days"))/365.25, 0),
+    income3050 = ifelse(yearly_income == "$30K - $50K", 1, 0),
+     income5070 = ifelse(yearly_income == "$50K - $70K", 1, 0),
+     income7090 = ifelse(yearly_income == "$70K - $90K", 1, 0),
+     income90110 = ifelse(yearly_income == "$90K - $110K", 1, 0),
+     income110130 = ifelse(yearly_income == "$110K - $130K", 1, 0),
+     income130150 = ifelse(yearly_income == "$130K - $150K", 1, 0),
+     income150plus = ifelse(yearly_income == "$150K +", 1, 0),
+    marital_status = as.numeric(factor(marital_status)),
+    gender = as.numeric(factor(gender)),
+    education = as.numeric(factor(education)),
+    member_card = as.numeric(factor(member_card)),
+    occupation = as.numeric(factor(occupation)),
+    homeowner = as.numeric(factor(homeowner)),
+    target_total_spend = as.numeric(total_spend)
+  ) %>%
+  select(-customer_id, -customer_acct_num, -first_name, -last_name, 
+         -customer_address, -customer_city, -customer_state_province, 
+         -customer_postal_code, -customer_country, -birthdate, -acct_open_date, -total_spend_1997, -total_spend_1998, -yearly_income, -total_spend)
+
+# Define features and target
+X <- data %>% select(-target_total_spend)
+y <- ifelse(data$target_total_spend > 50, 1, 0)  # Binary classification: High spenders
+
+# Normalize data
+X_scaled <- as.data.frame(scale(X))
+
+# Split data into training and testing sets
+set.seed(42)
+train_indices <- sample(1:nrow(customer_sales_knn), 2/3 * nrow(customer_sales_knn))
+X_train <- X_scaled[train_indices, ]
+X_test <- X_scaled[-train_indices, ]
+y_train <- y[train_indices]
+y_test <- y[-train_indices]
+
+# Train KNN model on loop
+res <- data.frame(nbr_neighbors = 1:100, error_rate_train = 0, error_rate_test = 0)
+
+for (k in 1:100) {
+  knn_model <- knn(train = X_train, test = X_train, cl = y_train, k = k)
+  res$error_rate_train[k] <- mean(knn_model != y_train)
+  
+  knn_model <- knn(train = X_train, test = X_test, cl = y_train, k = k)
+  res$error_rate_test[k] <- mean(knn_model != y_test)
+}
+
+# Plot error rates
+ggplot(res, aes(x = nbr_neighbors)) +
+  geom_line(aes(y = error_rate_train, color = "Training Error Rate")) +
+  geom_line(aes(y = error_rate_test, color = "Testing Error Rate")) +
+  labs(title = "Error Rates vs. k", x = "k", y = "Error Rate") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+# Evaluate model
+confusion_matrix <- table(Predicted = y_pred, Actual = y_test)
+confusion_matrix
+
+# best model
+best_k <- which.min(res$error_rate_test)
+best_k
+
+knn_model_best <- knn(train = X_train, test = X_test, cl = y_train, k = best_k)
+
+
+
+```

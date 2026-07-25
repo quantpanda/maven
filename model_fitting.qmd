@@ -1,0 +1,368 @@
+---
+title: "Proposal"
+author: "Olivier Haley"
+format: html
+editor: visual
+self_contained: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# Load the data
+customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv") 
+regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
+returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
+stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
+transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv")
+transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
+```
+
+# Introduction
+
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+
+customers <- customers %>% 
+  mutate(yearly_income = factor(
+                                yearly_income, levels = c("$10K - $30K"   ,
+                                                          "$30K - $50K" , 
+                                                          "$50K - $70K"  , 
+                                                          "$70K - $90K"  , 
+                                                          "$90K - $110K" ,
+                                                          "$110K - $130K" ,
+                                                          "$130K - $150K", 
+                                                          "$150K +"  )
+                                )
+         )
+```
+
+```{r}
+#products
+# brand analysis
+products_summary <- products %>% 
+  group_by(product_brand) %>%
+  summarise(count_products = n_distinct(product_id),
+            avg_price = mean(product_retail_price),
+            avg_cost = mean(product_cost),
+            avg_weight = mean(product_weight),
+            recyclable = mean(recyclable),
+            low_fat = mean(low_fat))
+```
+
+# Customer Annual Value Estimation
+
+```{r}
+ref_date <- as.Date("1997-01-01")
+
+customer_attributes <- customers %>%
+  select(-customer_acct_num, -first_name, -last_name, -customer_address) 
+
+customer_attributes <- customer_attributes %>%
+  mutate(birthdate = as.Date(birthdate, format = "%m/%d/%Y"),
+         acct_open_date = as.Date(acct_open_date, format = "%m/%d/%Y"),
+         age = round(as.numeric(difftime(ref_date, birthdate, units = "days"))/365.25, 0),
+         acct_age = as.numeric(difftime(ref_date, acct_open_date, units = "days"))/365.25,
+         income3050 = ifelse(yearly_income == "$30K - $50K", 1, 0),
+         income5070 = ifelse(yearly_income == "$50K - $70K", 1, 0),
+         income7090 = ifelse(yearly_income == "$70K - $90K", 1, 0),
+         income90110 = ifelse(yearly_income == "$90K - $110K", 1, 0),
+         income110130 = ifelse(yearly_income == "$110K - $130K", 1, 0),
+         income130150 = ifelse(yearly_income == "$130K - $150K", 1, 0),
+         income150plus = ifelse(yearly_income == "$150K +", 1, 0)) %>% 
+  select(-yearly_income, -birthdate, -acct_open_date)
+
+```
+
+
+
+
+
+```{r}
+# 1997-1998 Aggregate
+full_transaction <- rbind(transactions_1997, transactions_1998) %>% 
+  left_join(products, by = "product_id") %>% 
+  left_join(stores %>% select(total_sqft, grocery_sqft, store_id, store_type), 
+            by = "store_id") 
+# find prefered store for each customer
+preferred_store <- full_transaction %>% 
+  group_by(customer_id, store_id) %>%
+  summarise(total_transactions = n(),
+            total_sales = sum(product_retail_price * quantity),
+            avg_transaction_value = mean(product_retail_price * quantity)) %>% 
+  ungroup() %>% 
+  group_by(customer_id) %>%
+  summarise(store_id = store_id[which.max(total_transactions)]) %>% 
+  left_join(stores %>% select(store_id, store_type, total_sqft, grocery_sqft), by = "store_id")
+  
+#join to attributes
+customer_attributes <- customer_attributes %>% 
+  left_join(preferred_store, by = "customer_id") 
+
+
+
+transactions_full_summarised <- full_transaction %>% 
+  mutate(transaction_value = product_retail_price * quantity) %>% 
+  group_by(customer_id) %>%
+  summarise(total_transactions = n(),
+            total_sales = sum(transaction_value),
+            avg_transaction_value = mean(transaction_value))
+
+transactions_full_trip <- full_transaction %>% 
+  mutate(transaction_value = product_retail_price * quantity) %>% 
+  group_by(customer_id, store_id, transaction_date) %>%
+  summarise(total_items = n(),
+            total_sales = sum(transaction_value),
+            avg_item_value = mean(product_retail_price)) %>%
+  left_join(customer_attributes, by = "customer_id") 
+
+trip_summary <- transactions_full_trip %>% 
+  group_by(customer_id) %>%
+  summarise(avg_trip_value = mean(total_sales),
+            avg_trip_items = mean(total_items),
+            avg_item_value = mean(avg_item_value)) 
+
+customer_attributes_sales <- customer_attributes %>%
+  left_join(transactions_full_summarised, by = "customer_id") %>% 
+  left_join(trip_summary, by = "customer_id") %>%
+  # left_join(preferred_store, by = "customer_id") %>%
+  replace_na(list(total_transactions = 0, total_sales = 0, avg_transaction_value = 0))
+
+customer_attributes_sales_clean <- customer_attributes_sales %>% 
+  na.omit() %>% 
+  select(-customer_id,  -customer_city, -customer_postal_code, -customer_country, -store_id)
+```
+
+# Table Overview
+
+```{r}
+DT::datatable(customer_attributes_sales_clean)
+```
+
+### Correlation Matrix
+
+```{r}
+corr_matrix <- cor(customer_attributes_sales_clean %>% select_if(is.numeric))
+#plot heatmap
+corrplot::corrplot(corr_matrix, method = "color", type = "upper", tl.col = "black", tl.srt = 45)
+```
+
+## Regression Analysis
+
+```{r}
+# Regression Analysis
+simple_reg <- customer_attributes_sales_clean %>% 
+  select(-avg_transaction_value, -total_sales, -total_transactions, -avg_item_value, -avg_trip_items)
+
+mod1 <- lm(avg_trip_value ~ ., data = simple_reg)
+summary(mod1)
+pred <- predict(mod1, simple_reg)
+residuals <- simple_reg$avg_trip_value - pred
+plot(mod1, which = c(1,2,3,4,5))
+```
+
+# Trimmed Regression
+```{r}
+# Regression Analysis
+simple_reg_2 <- customer_attributes_sales_clean %>% 
+  select(-avg_transaction_value, -total_sales, -total_transactions, -avg_item_value, -avg_trip_items, -income3050, -income5070, -income7090, -income90110, -income110130, -income130150, -income150plus, -education, -marital_status, -gender, -member_card, 
+         -occupation, -acct_age, -age, -num_children_at_home, -homeowner)
+
+DT::datatable(simple_reg_2)
+
+mod2 <- lm(avg_trip_value ~ ., data = simple_reg_2)
+summary(mod2)
+pred2 <- predict(mod2, simple_reg_2)
+residuals2 <- simple_reg_2$avg_trip_value - pred2
+plot(mod2, which = c(1,2,3,4,5))
+plot(pred2, simple_reg_2$avg_trip_value)
+error_rate <- sum(residuals2^2) / sum((simple_reg_2$avg_trip_value - mean(simple_reg_2$avg_trip_value))^2)
+
+simple_reg_3 <- customer_attributes_sales_clean %>% 
+  select(-avg_transaction_value, -avg_trip_value, -total_transactions, -avg_item_value, -avg_trip_items, -income3050, -income5070, -income7090, -income90110, -income110130, -income130150, -income150plus, -education, -marital_status, -gender, -member_card, -occupation, -acct_age, -age, -num_children_at_home, -homeowner, -total_sqft)
+mod3 <- lm(total_sales ~ ., data = simple_reg_3)
+summary(mod3)
+```
+
+## Classification Analysis
+
+```{r}
+library(rpart)
+# Data Analysis 
+high_spend <- quantile(simple_reg_2$avg_trip_value, 0.5)
+cart <- simple_reg_2 %>% 
+  mutate(high_spend = factor(ifelse(avg_trip_value > high_spend, 1, 0)),
+         customer_state_provinceCA = ifelse(customer_state_province == "CA", 1, 0), 
+          customer_state_provinceDF = ifelse(customer_state_province == "DF", 1, 0),
+          customer_state_provinceGuerrero  = ifelse(customer_state_province == "Guerrero", 1, 0),
+          customer_state_provinceJalisco  = ifelse(customer_state_province == "Jalisco", 1, 0),
+          customer_state_provinceMexico   = ifelse(customer_state_province == "Mexico", 1, 0),
+          customer_state_provinceOR = ifelse(customer_state_province == "OR", 1, 0),
+          customer_state_provinceSinaloa = ifelse(customer_state_province == "Sinaloa", 1, 0),
+          customer_state_provinceVeracruz = ifelse(customer_state_province == "Veracruz", 1, 0),
+          customer_state_provinceWA  = ifelse(customer_state_province == "WA", 1, 0),
+          customer_state_provinceYucatan  = ifelse(customer_state_province == "Yucatan", 1, 0),
+          customer_state_provinceZacatecas = ifelse(customer_state_province == "Zacatecas", 1, 0),
+         Supermarket  = ifelse(store_type ==  "Supermarket" , 1, 0),
+         Small_Grocery = ifelse(store_type == "Small Grocery", 1, 0),
+         Deluxe_Supermarket = ifelse(store_type == "Deluxe Supermarket", 1, 0),
+         Gourmet_Supermarket = ifelse(store_type == "Gourmet Supermarket", 1, 0),
+         Mid_Size_Grocery = ifelse(store_type == "Mid-Size Grocery", 1, 0)) %>%
+  select(-store_type, -customer_state_province , -avg_trip_value, -total_sqft, -grocery_sqft)
+remove(high_spend)
+```
+
+
+```{r}
+# Create Train, Validation and Test
+set.seed(2)
+sampled_indices <- sample(1:nrow(cart), 2/3*nrow(cart))
+cart_train <- cart[sampled_indices,]
+tmp_cart <- cart[-sampled_indices,]
+sampled_indices <- sample(1:nrow(tmp_cart), 1/2*nrow(tmp_cart))
+cart_val <- tmp_cart[sampled_indices,]
+cart_test <- tmp_cart[-sampled_indices,]
+```
+
+### Decision Tree
+
+#### Method 1: min_xerror + min_xstd
+
+```{r}
+# Decision Tree (classification)
+# Fit Decision Tree
+set.seed(1234)
+fit <-  rpart(high_spend ~ ., data = cart_train, method="class",
+      parms=list(split="information"), minsplit=2, minbucket=1, cp=-1)
+# printcp(fit)
+rpart::plotcp(fit)
+
+
+min_xerror <- min(fit$cptable[,"xerror"])
+# find the row with the minimum xerror
+min_xerror_row <- which(fit$cptable[,"xerror"] == min_xerror)
+# find the corresponding xstd
+min_xstd <- fit$cptable[min_xerror_row, "xstd"]
+# find the threshold
+threshold <- min_xerror + min_xstd
+# find smallest tree with xerror no greater than threshold
+min_xerror_row <- min(which(fit$cptable[,"xerror"] < threshold))
+# find the corresponding cp
+cp <- fit$cptable[min_xerror_row, "CP"]
+# prune the tree
+pruned_fit <- prune(fit, cp = cp)
+#plot
+rattle::fancyRpartPlot(pruned_fit)
+# predict
+pred <- predict(pruned_fit, cart_test, type = "class")
+pred_results <- table(cart_test$high_spend, pred)
+pred_results
+diag(pred_results)
+# accuracy
+accuracy <- sum(diag(pred_results)) / sum(pred_results) # accuracy
+paste0("min xerror: ", min_xerror)
+paste0("optimal cp: ", cp )
+# error rate
+error_rate <- 1 - accuracy
+paste0("Error rate: ",error_rate)
+
+n_tree <- nrow(fit$cptable)
+cart_res <- data.frame(nbr_node = 0, cp = fit$cptable[, 1], error_rates_val = 0)
+
+# run different pruned trees
+```
+
+#### Method 2 - Try em all
+
+```{r}
+for (ii in 1:n_tree) {
+  pruned_tree <- prune(fit, cp = fit$cptable[ii, 1])
+  predictions <- predict(pruned_tree, cart_val, type = "class")
+  cm <- table(predictions, cart_val$high_spend)
+  error_rate_val <- 1 - sum(diag(cm)) / sum(cm)
+  
+  cart_res[ii, 'error_rates_val'] <- error_rate_val
+  cart_res[ii, 'nbr_node'] <- nrow(pruned_tree$frame)
+}
+cart_res[, 'error_rates_val']
+
+# plot validation error rate vs subtree size
+ggplot(cart_res, aes(x = nbr_node, y = error_rates_val)) +
+  geom_line() +
+  scale_x_log10() +
+  labs(title = "Validation Error Rate vs Subtree Size",
+       x = "Subtree Size (log scale)",
+       y = "Validation Error Rate")
+
+min_val_error_row <-  which.min(cart_res$error_rates_val)
+optimal_cp <- cart_res[min_val_error_row, "cp"]
+min_val_error <- cart_res[min_val_error_row, "error_rates_val"]
+paste0("min validation error: ", min_val_error)
+paste0("optimal cp: ", optimal_cp)
+paste0("error rate: ", min_val_error)
+paste0("optimal number of nodes: ", cart_res[min_val_error_row, "nbr_node"])
+
+# Prune the tree
+
+optimal_pruned_tree <- prune(fit, cp = 1.924786e-01	)
+
+# Plot final tree
+rattle::fancyRpartPlot(optimal_pruned_tree)
+```
+
+### Bagging Model
+
+```{r}
+library(randomForest)
+# Simple Bagging Model
+set.seed(1234)
+bagging_model <- randomForest::randomForest(high_spend~., data = cart_train, mtry = 6, importance = T, na.action = na.omit)
+bagging_predictions <- predict(bagging_model, cart_val)
+bagging_cm <- table(bagging_predictions, cart_val$high_spend)
+bagging_val_error_rate <- 1 - sum(diag(bagging_cm)) / sum(bagging_cm)
+paste0("specificity: ", bagging_cm[1,1] / sum(bagging_cm[1,]))
+paste0("sensitivity: ", bagging_cm[2,2] / sum(bagging_cm[2,]))
+table(bagging_predictions, cart_val$high_spend)
+bagging_val_error_rate
+```
+
+### Random Forest
+
+```{r}
+#Random Forest
+set.seed(1234)
+rf_model <- randomForest(high_spend ~ ., data = cart_train)
+rf_predictions <- predict(rf_model, cart_val)
+rf_cm <- table(rf_predictions, cart_val$high_spend)
+rf_cm
+paste0("specificity: ", rf_cm[1,1] / sum(rf_cm[1,]))
+paste0("sensitivity: ", rf_cm[2,2] / sum(rf_cm[2,]))
+rf_val_error_rate <- 1 - sum(diag(rf_cm)) / sum(rf_cm)
+rf_val_error_rate
+```
+
+### Test Set
+
+```{r}
+# Test Error Rate
+# Choose RF model
+test_predictions <- predict(rf_model, cart_test)
+test_cm <- table(test_predictions, cart_test$high_spend)
+test_error_rate <- 1 - sum(diag(test_cm)) / sum(test_cm)
+table(test_predictions, cart_test$high_spend)
+paste0("specificity: ", test_cm[1,1] / sum(test_cm[1,]))
+paste0("sensitivity: ", test_cm[2,2] / sum(test_cm[2,]))
+test_error_rate
+```
+
+

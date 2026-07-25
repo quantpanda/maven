@@ -1,0 +1,193 @@
+---
+title: "Proposal"
+author: "Olivier Haley"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# Load the data
+customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv") 
+regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
+returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
+stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
+transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv")
+transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
+```
+
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+
+customers <- customers %>% 
+  mutate(yearly_income = factor(
+                                yearly_income, levels = c("$30K - $50K" , 
+                                                          "$70K - $90K"  , 
+                                                          "$50K - $70K"  , 
+                                                          "$10K - $30K"   ,
+                                                          "$90K - $110K" ,
+                                                          "$110K - $130K" ,
+                                                          "$130K - $150K", 
+                                                          "$150K +"  )
+                                )
+         )
+# get sales numbers by transaction
+transactions_1997_sales <- transactions_1997 %>%
+  left_join(products, by = "product_id") %>%
+  group_by(customer_id) %>%
+  summarise(total_spend_1997 = sum(product_retail_price * quantity))
+
+transactions_1998_sales <- transactions_1998 %>%
+  left_join(products, by = "product_id") %>%
+  group_by(customer_id) %>%
+  summarise(total_spend_1998 = sum(product_retail_price * quantity))
+
+# join the sales numbers to the customers
+customer_sales <- customers %>% 
+  left_join(transactions_1997_sales, by = "customer_id") %>% 
+  left_join(transactions_1998_sales, by = "customer_id") %>% 
+  replace_na(list(total_spend_1997 = 0, total_spend_1998 = 0)) %>%
+  mutate(total_spend = total_spend_1997 + total_spend_1998)
+
+
+# KNN
+library(class)
+# Only numeric cols for knn
+# Clean the data
+customer_sales_knn <- customer_sales %>%
+  mutate(
+    birthdate = as.Date(birthdate, format = "%m/%d/%Y"),
+    acct_open_date = as.Date(acct_open_date, format = "%m/%d/%Y"),
+    age = round(as.numeric(difftime(as.Date("1998-01-01"), birthdate, units = "days"))/365.25, 0),
+    income3050 = ifelse(yearly_income == "$30K - $50K", 1, 0),
+     income5070 = ifelse(yearly_income == "$50K - $70K", 1, 0),
+     income7090 = ifelse(yearly_income == "$70K - $90K", 1, 0),
+     income90110 = ifelse(yearly_income == "$90K - $110K", 1, 0),
+     income110130 = ifelse(yearly_income == "$110K - $130K", 1, 0),
+     income130150 = ifelse(yearly_income == "$130K - $150K", 1, 0),
+     income150plus = ifelse(yearly_income == "$150K +", 1, 0),
+    marital_status = factor(marital_status),
+    gender = factor(gender),
+    education = factor(education),
+    member_card = factor(member_card),
+    occupation = factor(occupation),
+    homeowner = factor(homeowner),
+    target_total_spend = as.numeric(total_spend)
+  ) %>%
+  select(-customer_id, -customer_acct_num, -first_name, -last_name, 
+         -customer_address, -customer_city, -customer_state_province, 
+         -customer_postal_code, -customer_country, -birthdate, -acct_open_date, -total_spend_1997, -total_spend_1998, -yearly_income, -total_spend) 
+```
+
+```{r}
+
+# # find 90th percentile
+# this is unbalanced. Take 10% from the bottom (technique called undersampling)
+target_90 <- quantile(customer_sales_knn$target_total_spend, 0.9)
+
+# Define features and target
+y <- ifelse(customer_sales_knn$target_total_spend > target_90, 1, 0) # Binary classification: High spenders
+
+customer_sales_knn <- customer_sales_knn %>% mutate(target = y) %>% 
+  mutate(target = as.factor(target)) %>% 
+  select(-target_total_spend)
+
+
+set.seed(125)
+# b. 
+sample_rows <- sample(1:nrow(customer_sales_knn), 2/3 * nrow(customer_sales_knn))
+# c. 
+customer_sales_knn.train <- customer_sales_knn[sample_rows, ]
+# d. Assign the remaining 1/3 of the rows to customer_sales_knn.rest.
+customer_sales_knn.rest <- customer_sales_knn[-sample_rows, ]
+# e. From customer_sales_knn.rest, randomly sample half of the row indices using the sample() function.
+sample_rows <- sample(1:nrow(customer_sales_knn.rest), 1/2 * nrow(customer_sales_knn.rest))
+# f. Use this half to create the validation set and name it customer_sales_knn.val.
+customer_sales_knn.val <- customer_sales_knn.rest[sample_rows, ]
+customer_sales_knn.test <- customer_sales_knn.rest[-sample_rows, ]
+
+num_cols <- ncol(customer_sales_knn.train)
+
+
+for (i in colnames(customer_sales_knn.train[,-num_cols])) {
+    mean_val <- mean(customer_sales_knn.train[[i]])
+    sd_val <- sd(customer_sales_knn.train[[i]])
+    print(paste("Feature:", i, "Mean:", mean_val, "Standard Deviation:", sd_val))
+}
+# ii. Using the mean and standard deviation obtained in part (b.i), 
+# standardize all features in the training, validation, and test datasets 
+for (i in colnames(customer_sales_knn.train[,-num_cols])) {
+    mean_val <- mean(customer_sales_knn.train[[i]])
+    sd_val <- sd(customer_sales_knn.train[[i]])
+    customer_sales_knn.train[[i]] <- scale(customer_sales_knn.train[[i]], center = mean_val, scale = sd_val)
+    customer_sales_knn.val[[i]] <- scale(customer_sales_knn.val[[i]], center = mean_val, scale = sd_val)
+    customer_sales_knn.test[[i]] <- scale(customer_sales_knn.test[[i]], center = mean_val, scale = sd_val)
+}
+
+res <- data.frame(nbr_neighbors = 1:100, error_rate_train = 0, error_rate_val = 0)
+
+for (k in 1:100) { # add step
+  cl <- as.vector(customer_sales_knn.train[[num_cols]])
+  
+  knn_train <- knn(
+    train = as.matrix(customer_sales_knn.train[, -num_cols]),
+    test = as.matrix(customer_sales_knn.train[, -num_cols]),
+    cl = cl,
+    k = k
+  )
+
+  res$error_rate_train[k] <- mean(knn_train != cl)
+
+  knn_val <- knn(
+    train = as.matrix(customer_sales_knn.train[, -num_cols]),
+    test = as.matrix(customer_sales_knn.val[, -num_cols]),
+    cl = cl,
+    k = k
+  )
+  res$error_rate_val[k] <- mean(knn_val != customer_sales_knn.val[[num_cols]])
+}
+
+# # e. (10 pts) 
+
+ggplot(res, aes(x =  1/nbr_neighbors)) +
+  geom_line(aes(y = error_rate_train, color = "Training Error Rate")) +
+  geom_line(aes(y = error_rate_val, color = "Validation Error Rate")) +
+  labs(title = "Error Rates vs. 1/k", x = "1/k", y = "Error Rate") +
+  theme_minimal() +
+  theme(legend.position = "top")
+ggplot(res, aes(x =  nbr_neighbors)) +
+  geom_line(aes(y = error_rate_train, color = "Training Error Rate")) +
+  geom_line(aes(y = error_rate_val, color = "Validation Error Rate")) +
+  labs(title = "Error Rates vs. k", x = "k", y = "Error Rate") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+best_k <- (res %>% filter(error_rate_val == min(error_rate_val)) %>% pull(nbr_neighbors))[1]
+
+cl <- as.vector(customer_sales_knn.train[[num_cols]])
+knn_test <- knn(train = as.matrix(customer_sales_knn.train[, -num_cols]),
+                test = as.matrix(customer_sales_knn.test[, -num_cols]),
+                cl = cl,
+                k = best_k)
+
+test_accuracy <- mean(knn_test == as.vector(customer_sales_knn.test[, num_cols]))
+test_accuracy
+test_error_rate <- 1 - test_accuracy
+test_error_rate
+
+confusion_matrix <- table(knn_test, customer_sales_knn.test[, num_cols])
+
+
+
+```

@@ -1,0 +1,163 @@
+---
+title: "Proposal"
+author: "Olivier Haley"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, warning = F, message = F)
+library(tidyverse)
+library(ggplot2)
+```
+
+```{r}
+# Load the data
+customers <- read_csv("data/CSV Files/MavenMarket_Customers.csv")
+products <- read_csv("data/CSV Files/MavenMarket_Products.csv") 
+regions <- read_csv("data/CSV Files/MavenMarket_Regions.csv")
+returns <- read_csv("data/CSV Files/MavenMarket_Returns_1997-1998.csv")
+stores <- read_csv("data/CSV Files/MavenMarket_Stores.csv")
+transactions_1997 <- read_csv("data/CSV Files/MavenMarket_Transactions_1997.csv")
+transactions_1998 <- read_csv("data/CSV Files/MavenMarket_Transactions_1998.csv")
+```
+
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+```
+
+# Introduction
+
+```{r}
+# Data Preperation
+# Clean the data
+products <- products %>% 
+  replace_na(list(recyclable = 0, low_fat = 0)) %>% 
+  mutate(gross_profit = product_retail_price - product_cost,
+         gross_margin = gross_profit/product_retail_price)
+
+customers <- customers %>% 
+  mutate(yearly_income = factor(
+                                yearly_income, levels = c("$10K - $30K"   ,
+                                                          "$30K - $50K" , 
+                                                          "$50K - $70K"  , 
+                                                          "$70K - $90K"  , 
+                                                          "$90K - $110K" ,
+                                                          "$110K - $130K" ,
+                                                          "$130K - $150K", 
+                                                          "$150K +"  )
+                                )
+         )
+```
+
+```{r}
+#products
+# brand analysis
+products_summary <- products %>% 
+  group_by(product_brand) %>%
+  summarise(count_products = n_distinct(product_id),
+            avg_price = mean(product_retail_price),
+            avg_cost = mean(product_cost),
+            avg_weight = mean(product_weight),
+            recyclable = mean(recyclable),
+            low_fat = mean(low_fat))
+
+
+```
+
+
+
+# Customer Annual Value Estimation
+
+```{r}
+ref_date <- as.Date("1997-01-01")
+
+customer_attributes <- customers %>%
+  select(-customer_acct_num, -first_name, -last_name, -customer_address) 
+
+customer_attributes <- customer_attributes %>%
+  mutate(birthdate = as.Date(birthdate, format = "%m/%d/%Y"),
+         acct_open_date = as.Date(acct_open_date, format = "%m/%d/%Y"),
+         age = round(as.numeric(difftime(ref_date, birthdate, units = "days"))/365.25, 0),
+         acct_age = as.numeric(difftime(ref_date, acct_open_date, units = "days"))/365.25,
+         income3050 = ifelse(yearly_income == "$30K - $50K", 1, 0),
+         income5070 = ifelse(yearly_income == "$50K - $70K", 1, 0),
+         income7090 = ifelse(yearly_income == "$70K - $90K", 1, 0),
+         income90110 = ifelse(yearly_income == "$90K - $110K", 1, 0),
+         income110130 = ifelse(yearly_income == "$110K - $130K", 1, 0),
+         income130150 = ifelse(yearly_income == "$130K - $150K", 1, 0),
+         income150plus = ifelse(yearly_income == "$150K +", 1, 0)) %>% 
+  select(-yearly_income, -birthdate, -acct_open_date)
+
+```
+
+
+
+
+
+```{r}
+# 1997-1998 Aggregate
+full_transaction <- rbind(transactions_1997, transactions_1998) %>% 
+  left_join(products, by = "product_id") %>% 
+  left_join(stores %>% select(total_sqft, grocery_sqft, store_id, store_type), 
+            by = "store_id") 
+# find prefered store for each customer
+preferred_store <- full_transaction %>% 
+  group_by(customer_id, store_id) %>%
+  summarise(total_transactions = n(),
+            total_sales = sum(product_retail_price * quantity),
+            avg_transaction_value = mean(product_retail_price * quantity)) %>% 
+  ungroup() %>% 
+  group_by(customer_id) %>%
+  summarise(store_id = store_id[which.max(total_transactions)]) %>% 
+  left_join(stores %>% select(store_id, store_type, total_sqft, grocery_sqft), by = "store_id")
+  
+#join to attributes
+customer_attributes <- customer_attributes %>% 
+  left_join(preferred_store, by = "customer_id") 
+
+
+
+transactions_full_summarised <- full_transaction %>% 
+  mutate(transaction_value = product_retail_price * quantity) %>% 
+  group_by(customer_id) %>%
+  summarise(total_transactions = n(),
+            total_sales = sum(transaction_value),
+            avg_transaction_value = mean(transaction_value))
+
+transactions_full_trip <- full_transaction %>% 
+  mutate(transaction_value = product_retail_price * quantity) %>% 
+  group_by(customer_id, store_id, transaction_date) %>%
+  summarise(total_items = n(),
+            total_sales = sum(transaction_value),
+            avg_item_value = mean(product_retail_price), 
+            store_type = paste0(store_type)) %>%
+  left_join(customer_attributes, by = "customer_id") 
+
+trip_summary <- transactions_full_trip %>% 
+  group_by(customer_id) %>%
+  summarise(avg_trip_value = mean(total_sales),
+            avg_trip_items = mean(total_items),
+            avg_item_value = mean(avg_item_value)) 
+
+customer_attributes_sales <- customer_attributes %>%
+  left_join(transactions_full_summarised, by = "customer_id") %>% 
+  left_join(trip_summary, by = "customer_id") %>%
+  replace_na(list(total_transactions = 0, total_sales = 0, avg_transaction_value = 0))
+
+customer_attributes_sales_clean <- customer_attributes_sales %>% 
+  na.omit() %>% 
+  select(-customer_id, -store_id, -customer_city, -customer_postal_code, customer_country)
+
+corr_matrix <- cor(customer_attributes_sales_clean %>% select_if(is.numeric))
+#plot heatmap
+corrplot::corrplot(corr_matrix, method = "number", type = "upper", tl.col = "black", tl.srt = 45) 
+corrplot::corrplot(corr_matrix, method = "color", type = "upper", tl.col = "black", tl.srt = 45)
+```
+
+
